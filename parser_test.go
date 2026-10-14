@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -888,4 +889,74 @@ func benchmarkSigning(b *testing.B, method jwt.SigningMethod, key any) {
 			}
 		}
 	})
+}
+
+func TestParser_CRLFInToken(t *testing.T) {
+	key := []byte("secret")
+	token, err := jwt.New(jwt.SigningMethodHS256).SignedString(key)
+	if err != nil {
+		t.Fatalf("SignedString failed: %v", err)
+	}
+	sig := strings.LastIndexByte(token, '.') + 1
+	keyFunc := func(*jwt.Token) (any, error) { return key, nil }
+
+	tests := []struct {
+		name        string
+		tokenString string
+	}{
+		{
+			name:        "LF in signature",
+			tokenString: token[:sig+4] + "\n" + token[sig+4:],
+		},
+		{
+			name:        "CR in signature",
+			tokenString: token[:sig+4] + "\r" + token[sig+4:],
+		},
+		{
+			name:        "CRLF in signature",
+			tokenString: token[:sig+4] + "\r\n" + token[sig+4:],
+		},
+		{
+			name:        "trailing LF",
+			tokenString: token + "\n",
+		},
+		{
+			name:        "trailing CRLF",
+			tokenString: token + "\r\n",
+		},
+		{
+			name:        "leading LF",
+			tokenString: "\n" + token,
+		},
+		{
+			name:        "LF in header",
+			tokenString: token[:4] + "\n" + token[4:],
+		},
+		{
+			name:        "LF in payload",
+			tokenString: token[:sig-4] + "\n" + token[sig-4:],
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := jwt.Parse(tt.tokenString, keyFunc)
+			if err == nil {
+				t.Fatalf("expected error for token with CR/LF, got nil")
+			}
+			if !errors.Is(err, jwt.ErrTokenMalformed) {
+				t.Errorf("expected ErrTokenMalformed, got %v", err)
+			}
+		})
+	}
+}
+
+func TestParser_DecodeSegment_CRLF(t *testing.T) {
+	p := jwt.NewParser()
+	for _, input := range []string{"\n", "\r", "\r\n", "abc\n", "ab\rc", "a\r\nb"} {
+		_, err := p.DecodeSegment(input)
+		if err == nil {
+			t.Errorf("expected error decoding segment %q containing CR/LF, got nil", input)
+		}
+	}
 }

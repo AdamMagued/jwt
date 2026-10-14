@@ -231,7 +231,14 @@ func splitToken(token string) ([]string, bool) {
 // DecodeSegment decodes a JWT specific base64url encoding. This function will
 // take into account whether the [Parser] is configured with additional options,
 // such as [WithStrictDecoding] or [WithPaddingAllowed].
+//
+// Per RFC 7515 Section 5.2, no line breaks, whitespace, or other additional
+// characters are permitted in any segment.
 func (p *Parser) DecodeSegment(seg string) ([]byte, error) {
+	if i := strings.IndexAny(seg, "\r\n"); i != -1 {
+		return nil, base64.CorruptInputError(i)
+	}
+
 	encoding := base64.RawURLEncoding
 
 	if p.decodePaddingAllowed {
